@@ -23,19 +23,24 @@ relevantTechniques:
   - T1110
 query: |
 
-  let timeRange = 1d;
-  let s_threshold = 30;
-  let l_threshold = 3;
-  SigninLogs
-  | where TimeGenerated >= ago(timeRange)
-  | where OperationName =~ "Sign-in activity"
-  // Error codes that we want to look at as they are related to the use of incorrect password.
-  | where ResultType in ("50126", "50053" , "50055", "50056")
-  | extend OS = DeviceDetail.operatingSystem, Browser = DeviceDetail.browser 
-  | extend LocationString= strcat(tostring(LocationDetails["countryOrRegion"]), "/", tostring(LocationDetails["state"]), "/", tostring(LocationDetails["city"]))
-  | summarize StartTimeUtc = min(TimeGenerated), EndTimeUtc = max(TimeGenerated), SigninCount=count(), LocationCount=dcount(LocationString) by UserPrincipalName, IPAddress, LocationString, AppDisplayName, ResultDescription, tostring(Browser), tostring(OS)
-  // Setting a generic threshold - Can be different for different environment
-  | where SigninCount > s_threshold                                     
-  // Setting a generic threshold for location  - Can be different for different environment
-  | where LocationCount >= l_threshold
-  | extend timestamp = StartTimeUtc, AccountCustomEntity = UserPrincipalName, IPCustomEntity = IPAddress
+let timeRange = 1d;
+let s_threshold = 30;
+let l_threshold = 3;
+let UserSignIns = SigninLogs
+| where TimeGenerated >= ago(timeRange)
+| where OperationName =~ "Sign-in activity"
+// Error codes that we want to look at as they are related to the use of incorrect password.
+| where ResultType in ("50126", "50053" , "50055", "50056")
+| extend OS = DeviceDetail.operatingSystem, Browser = DeviceDetail.browser 
+| extend LocationString= strcat(tostring(LocationDetails["countryOrRegion"]), "/", tostring(LocationDetails["state"]), "/", tostring(LocationDetails["city"]));
+UserSignIns
+| summarize StartTimeUtc = min(TimeGenerated), EndTimeUtc = max(TimeGenerated), SigninCount=count(), LocationCount=dcount(LocationString) by UserPrincipalName
+// Setting a generic threshold - Can be different for different environment
+| where SigninCount > s_threshold                                     
+// Setting a generic threshold for location  - Can be different for different environment
+| where LocationCount >= l_threshold
+| summarize by UserPrincipalName
+| join (UserSignIns
+| summarize StartTimeUtc = min(TimeGenerated), EndTimeUtc = max(TimeGenerated), SigninCount=count(), LocationCount=dcount(LocationString) by UserPrincipalName, IPAddress, LocationString, AppDisplayName, ResultDescription, tostring(Browser), tostring(OS), UserAgent
+) on UserPrincipalName 
+| extend timestamp = StartTimeUtc, AccountCustomEntity = UserPrincipalName, IPCustomEntity = IPAddress
